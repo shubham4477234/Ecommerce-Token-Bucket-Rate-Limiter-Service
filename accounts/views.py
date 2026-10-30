@@ -146,7 +146,7 @@ class LogoutView(APIView):
 
 class MeView(APIView):
 
-    # Only authenticated users can access this API
+    # Only authenticated users can access this API , you need to provide the jwt access token.
     permission_classes = [IsAuthenticated]
 
     def get(self, request):
