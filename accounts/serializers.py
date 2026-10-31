@@ -8,22 +8,28 @@ from rest_framework import serializers
 class RegisterSerializer(serializers.ModelSerializer):
 
     # User must enter the password twice
-    confirm_password = serializers.CharField(
-        write_only=True
+    confirm_password = serializers.CharField(write_only=True)
+
+    # User can register as customer or seller
+    role = serializers.ChoiceField(
+        choices=[
+            ("customer", "Customer"),
+            ("seller", "Seller")
+        ],
+        default="customer"
     )
 
     class Meta:
         model = User
 
-        # Fields accepted during registration
         fields = [
             "email",
             "phone",
             "password",
             "confirm_password",
+            "role",
         ]
 
-        # Password should never be returned in API responses
         extra_kwargs = {
             "password": {
                 "write_only": True
@@ -43,20 +49,16 @@ class RegisterSerializer(serializers.ModelSerializer):
     # Create a new user
     def create(self, validated_data):
 
-        # Remove confirm_password because it is not a User model field
         validated_data.pop("confirm_password")
 
-        # Create user using our custom manager
         user = User.objects.create_user(
             email=validated_data["email"],
             phone=validated_data["phone"],
             password=validated_data["password"],
+            role=validated_data["role"],
         )
 
         return user
-
-
-
 class LoginSerializer(serializers.Serializer):
 
     # Fields received from the login request

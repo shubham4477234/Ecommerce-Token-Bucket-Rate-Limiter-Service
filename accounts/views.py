@@ -6,12 +6,12 @@ from django.contrib.auth import get_user_model
 
 from .serializers import RegisterSerializer, LoginSerializer, RefreshSerializer
 from .serializers import LogoutSerializer
-from rest_framework.permissions import IsAuthenticated
+from rest_framework.permissions import IsAuthenticated, AllowAny
 
 
 # Registration API
 class RegisterView(APIView):
-
+    permission_classes = [AllowAny]
     def post(self, request):
 
         # Pass the incoming request data to the serializer
@@ -47,7 +47,7 @@ class RegisterView(APIView):
 
 
 class LoginView(APIView):
-
+    permission_classes = [AllowAny]
     def post(self, request):
 
         # Pass login data to the serializer
@@ -94,7 +94,7 @@ class LoginView(APIView):
 
 
 class RefreshView(APIView):
-
+    permission_classes = [AllowAny]
     def post(self, request):
 
         # Pass the refresh token to the serializer
@@ -119,6 +119,7 @@ class RefreshView(APIView):
         )
     
 class LogoutView(APIView):
+    permission_classes = [AllowAny]
 
     def post(self, request):
 

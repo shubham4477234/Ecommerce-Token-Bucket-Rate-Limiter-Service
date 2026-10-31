@@ -6,10 +6,10 @@ from .managers import UserManager
 class User(AbstractBaseUser, PermissionsMixin):
     objects = UserManager()
     ROLE_CHOICES = [
-        ("customer", "Customer"),
-        ("admin", "Admin"),
-        ("service", "Service"),
-    ]
+    ("customer", "Customer"),
+    ("seller", "Seller"),
+    ("admin", "Admin"),
+]
 
     TIER_CHOICES = [
         ("free", "Free"),
