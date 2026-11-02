@@ -1,4 +1,6 @@
 from django.conf import settings
+from django.core.exceptions import ValidationError
+from django.core.validators import MinValueValidator
 from django.db import models
 from mptt.models import MPTTModel, TreeForeignKey
 
@@ -67,24 +69,15 @@ class IsActiveQueryset(models.QuerySet):
 
 
 class Category(MPTTModel):
-
-    name = models.CharField(
-        max_length=235,
-        unique=True
-    )
+    name = models.CharField(max_length=235)
 
     slug = models.SlugField(
         max_length=255,
         unique=True
     )
 
-    description = models.TextField(
-        blank=True
-    )
-
-    is_active = models.BooleanField(
-        default=False
-    )
+    description = models.TextField(blank=True)
+    is_active = models.BooleanField(default=False)
 
     parent = TreeForeignKey(
         "self",
@@ -105,7 +98,6 @@ class Category(MPTTModel):
 
     def __str__(self):
         return self.name
-
 
 class ProductType(models.Model):
 
@@ -339,7 +331,6 @@ class SellerProduct(models.Model):
 
 
 class ProductAttributeValue(models.Model):
-
     product = models.ForeignKey(
         Product,
         on_delete=models.CASCADE,
@@ -362,9 +353,42 @@ class ProductAttributeValue(models.Model):
             )
         ]
 
+    def clean(self):
+        if not self.product_id or not self.attribute_value_id:
+            return
+
+        product_type_id = self.product.product_type_id
+        attribute_id = self.attribute_value.attribute_id
+
+        # Check whether this attribute is allowed
+        # for this product type.
+        is_allowed = ProductTypeAttribute.objects.filter(
+            product_type_id=product_type_id,
+            attribute_id=attribute_id
+        ).exists()
+
+        if not is_allowed:
+            raise ValidationError(
+                "This attribute is not allowed for this product type."
+            )
+
+        # Prevent multiple values for the same attribute.
+        duplicate = ProductAttributeValue.objects.filter(
+            product_id=self.product_id,
+            attribute_value__attribute_id=attribute_id
+        ).exclude(pk=self.pk).exists()
+
+        if duplicate:
+            raise ValidationError(
+                "This product already has a value for this attribute."
+            )
+
+    def save(self, *args, **kwargs):
+        self.full_clean()
+        return super().save(*args, **kwargs)
+
     def __str__(self):
         return f"{self.product.name} - {self.attribute_value}"
-
 
 from django.core.validators import MinValueValidator
 from django.db import models
@@ -556,3 +580,51 @@ class ProductImage(models.Model):
 
     def __str__(self):
         return f"{self.seller_product.product.name} - Image"
+
+
+class ProductRequest(models.Model):
+
+    STATUS_CHOICES = [
+        ("pending", "Pending"),
+        ("approved", "Approved"),
+        ("rejected", "Rejected"),
+    ]
+
+    seller = models.ForeignKey(
+        SellerProfile,
+        on_delete=models.PROTECT,
+        related_name="product_requests"
+    )
+
+    name = models.CharField(max_length=200)
+    description = models.TextField(blank=True)
+
+    category = models.ForeignKey(
+        Category,
+        on_delete=models.PROTECT,
+        related_name="product_requests"
+    )
+
+    product_type = models.ForeignKey(
+        ProductType,
+        on_delete=models.PROTECT,
+        related_name="product_requests"
+    )
+
+    status = models.CharField(
+        max_length=20,
+        choices=STATUS_CHOICES,
+        default="pending"
+    )
+
+    admin_note = models.TextField(blank=True)
+
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        db_table = "seller_product_requests"
+        ordering = ["-created_at"]
+
+    def __str__(self):
+        return self.name
