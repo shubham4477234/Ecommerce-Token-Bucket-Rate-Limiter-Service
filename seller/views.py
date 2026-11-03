@@ -1,3 +1,5 @@
+from urllib import request
+from rest_framework.parsers import MultiPartParser, FormParser
 from django.core.cache import cache
 from django.db.models import Q
 from django.shortcuts import get_object_or_404
@@ -7,6 +9,7 @@ from rest_framework.pagination import PageNumberPagination
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
+from django.db.models import Sum
 
 from accounts.permissions import IsSeller
 from .models import (
@@ -14,15 +17,16 @@ from .models import (
     Category,
     ProductType,
     ProductTypeAttribute,
-    Product, SellerProduct
+    Product, SellerProduct, SellerProduct, ProductLine, ProductImage
 )
 from .serializers import (
     SellerProfileSerializer,
     CategorySerializer,
     ProductTypeSerializer,
-    ProductTypeAttributeSerializer,
-    ProductRequestSerializer,
-    ProductSerializer, AddProductToStoreSerializer, SellerProductListSerializer
+    ProductTypeAttributeSerializer,ProductVariantUpdateSerializer,
+    ProductRequestSerializer,ProductVariantCreateSerializer, ProductVariantListSerializer,
+    ProductSerializer, AddProductToStoreSerializer, SellerProductListSerializer, SellerProductUpdateSerializer,ProductImageUploadSerializer,
+    ProductImageSerializer
 )
 
 class SellerProfileView(APIView):
@@ -448,3 +452,300 @@ class AddProductToStoreView(APIView):
             },
             status=status.HTTP_201_CREATED
         )
+
+
+class SellerProductUpdateView(APIView):
+
+    permission_classes = [IsAuthenticated, IsSeller]
+
+    def patch(self, request, pk):
+
+        # Get the logged-in seller's store
+        seller_profile = get_object_or_404(
+            SellerProfile,
+            user=request.user
+        )
+
+        # Find the product listing belonging to this seller
+        seller_product = get_object_or_404(
+            SellerProduct,
+            id=pk,
+            seller=seller_profile
+        )
+
+        # Validate and update the listing
+        serializer = SellerProductUpdateSerializer(
+            seller_product,
+            data=request.data,
+            partial=True
+        )
+
+        serializer.is_valid(raise_exception=True)
+        serializer.save()
+
+        # Clear cached seller product list
+        cache.delete(f"seller:products:{seller_profile.id}")
+
+        return Response(
+            {
+                "message": "Product listing updated successfully.",
+                "data": serializer.data
+            },
+            status=status.HTTP_200_OK
+        )
+
+
+
+
+
+class ProductVariantCreateView(APIView):
+
+    permission_classes = [IsAuthenticated, IsSeller]
+
+    # API 12 - Create Product Variant
+    def post(self, request, pk):
+
+        seller_profile = get_object_or_404(
+            SellerProfile,
+            user=request.user
+        )
+
+        seller_product = get_object_or_404(
+            SellerProduct,
+            id=pk,
+            seller=seller_profile
+        )
+
+        serializer = ProductVariantCreateSerializer(
+            data=request.data,
+            context={"seller_product": seller_product}
+        )
+
+        serializer.is_valid(raise_exception=True)
+
+        product_line = serializer.save()
+
+        return Response(
+            {
+                "message": "Product variant created successfully.",
+                "data": serializer.data
+            },
+            status=status.HTTP_201_CREATED
+        )
+
+    # API 13 - List Product Variants
+    def get(self, request, pk):
+
+        # Get the logged-in seller's store
+        seller_profile = get_object_or_404(
+            SellerProfile,
+            user=request.user
+        )
+
+        # Find the product listing belonging to this seller
+        seller_product = get_object_or_404(
+            SellerProduct,
+            id=pk,
+            seller=seller_profile
+        )
+
+        # Get all variants of this product listing
+        variants = ProductLine.objects.filter(
+            seller_product=seller_product
+        ).order_by("-created_at")
+
+        # Serialize all variants
+        serializer = ProductVariantListSerializer(
+            variants,
+            many=True
+        )
+
+        return Response(
+            {
+                "message": "Product variants fetched successfully.",
+                "data": serializer.data
+            },
+            status=status.HTTP_200_OK
+        )
+
+
+class ProductVariantUpdateView(APIView):
+
+    permission_classes = [IsAuthenticated, IsSeller]
+
+    def patch(self, request, pk):
+
+        # Get the logged-in seller's store
+        seller_profile = get_object_or_404(
+            SellerProfile,
+            user=request.user
+        )
+
+        # Get the variant belonging to this seller
+        product_variant = get_object_or_404(
+            ProductLine,
+            id=pk,
+            seller_product__seller=seller_profile
+        )
+
+        # Validate and update the variant
+        serializer = ProductVariantUpdateSerializer(
+            product_variant,
+            data=request.data,
+            partial=True
+        )
+
+        serializer.is_valid(raise_exception=True)
+        serializer.save()
+
+        return Response(
+            {
+                "message": "Product variant updated successfully.",
+                "data": serializer.data
+            },
+            status=status.HTTP_200_OK
+        )
+
+
+class ProductImageUploadView(APIView):
+
+    permission_classes = [IsAuthenticated, IsSeller]
+
+    parser_classes = [MultiPartParser, FormParser]
+
+    def post(self, request, pk):
+
+        # Get the logged-in seller's store
+        seller_profile = get_object_or_404(
+            SellerProfile,
+            user=request.user
+        )
+
+        # Get the product listing belonging to this seller
+        seller_product = get_object_or_404(
+            SellerProduct,
+            id=pk,
+            seller=seller_profile
+        )
+
+        # Validate uploaded images
+        serializer = ProductImageUploadSerializer(
+            data=request.data,
+            context={"seller_product": seller_product}
+        )
+
+        serializer.is_valid(raise_exception=True)
+
+        # Save all uploaded images
+        created_images = serializer.save()
+
+        # Prepare response
+        response_serializer = ProductImageSerializer(
+            created_images,
+            many=True
+        )
+
+        return Response(
+            {
+                "message": "Product images uploaded successfully.",
+                "data": response_serializer.data
+            },
+            status=status.HTTP_201_CREATED
+        )
+
+
+
+class ProductImageListView(APIView):
+
+    permission_classes = [IsAuthenticated, IsSeller]
+
+    def get(self, request, pk):
+
+        # Get the logged-in seller's store
+        seller_profile = get_object_or_404(
+            SellerProfile,
+            user=request.user
+        )
+
+        # Find the product listing belonging to this seller
+        seller_product = get_object_or_404(
+            SellerProduct,
+            id=pk,
+            seller=seller_profile
+        )
+
+        # Retrieve images belonging to this product listing
+        images = ProductImage.objects.filter(
+            seller_product=seller_product
+        ).order_by("display_order")
+
+        # Serialize the images
+        serializer = ProductImageSerializer(
+            images,
+            many=True
+        )
+
+        return Response(
+            {
+                "message": "Product images fetched successfully.",
+                "data": serializer.data
+            },
+            status=status.HTTP_200_OK
+        )
+
+class SellerDashboardView(APIView):
+
+    permission_classes = [IsAuthenticated, IsSeller]
+
+    def get(self, request):
+
+        # Get the logged-in seller's profile
+        seller_profile = get_object_or_404(
+            SellerProfile,
+            user=request.user
+        )
+
+        # Get all products belonging to this seller
+        seller_products = SellerProduct.objects.filter(
+            seller=seller_profile
+        )
+
+        # Count total products
+        total_products = seller_products.count()
+
+        # Count active products
+        active_products = seller_products.filter(
+            is_active=True
+        ).count()
+
+        # Count inactive products
+        inactive_products = seller_products.filter(
+            is_active=False
+        ).count()
+
+        # Get all variants belonging to this seller
+        seller_variants = ProductLine.objects.filter(
+            seller_product__seller=seller_profile
+        )
+
+        # Count total variants
+        total_variants = seller_variants.count()
+
+        # Calculate total stock quantity
+        total_stock = seller_variants.aggregate(
+            total=Sum("stock_qty")
+        )["total"] or 0
+
+        # Prepare dashboard response
+        dashboard_data = {
+            "total_products": total_products,
+            "active_products": active_products,
+            "inactive_products": inactive_products,
+            "total_variants": total_variants,
+            "total_stock_quantity": total_stock
+        }
+
+        return Response({
+            "message": "Seller dashboard fetched successfully.",
+            "data": dashboard_data
+        }, status=status.HTTP_200_OK)
