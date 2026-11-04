@@ -51,6 +51,7 @@ INSTALLED_APPS = [
     "healthcheck",
     "accounts",
     "seller",
+    "adminapp",
 ]
 
 
