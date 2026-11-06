@@ -261,7 +261,7 @@ class AdminAttributeConfigurationView(APIView):
 
     def post(self, request):
 
-        # Validate incoming data
+        # Validate incoming data with serializer
         serializer = AdminAttributeConfigurationSerializer(
             data=request.data
         )
@@ -294,7 +294,7 @@ class AdminAttributeConfigurationView(APIView):
                 "attribute__values"
             )
 
-            # Prepare response
+            # Prepare response to endpoint with updated mappings and their values
             response_serializer = AdminProductTypeAttributeResponseSerializer(
                 mappings,
                 many=True
