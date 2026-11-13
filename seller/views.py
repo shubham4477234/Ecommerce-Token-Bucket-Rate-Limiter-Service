@@ -10,7 +10,7 @@ from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
 from django.db.models import Sum
-
+from config.cache_utils import invalidate_customer_product_cache, invalidate_customer_product_cache
 from accounts.permissions import IsSeller
 from .models import (
     SellerProfile,
@@ -48,6 +48,14 @@ class SellerProfileView(APIView):
 
         # Save profile and connect it to logged-in user
         serializer.save(user=request.user)
+        # Invalidate customer product caches because seller
+# information is displayed in customer product responses.
+        seller_product_ids = SellerProduct.objects.filter(
+        seller__user=request.user
+        ).values_list("id", flat=True)
+
+        for seller_product_id in seller_product_ids:
+            invalidate_customer_product_cache(seller_product_id)
 
         # Remove old cached data
         cache.delete(f"seller:profile:{request.user.id}")
@@ -441,6 +449,7 @@ class AddProductToStoreView(APIView):
 
         # Create the SellerProduct record
         seller_product = serializer.save(seller=seller_profile)
+        invalidate_customer_product_cache()
 
         # Clear cached seller product list
         cache.delete(f"seller:products:{seller_profile.id}")
@@ -482,7 +491,7 @@ class SellerProductUpdateView(APIView):
 
         serializer.is_valid(raise_exception=True)
         serializer.save()
-
+        invalidate_customer_product_cache(seller_product.id)
         # Clear cached seller product list
         cache.delete(f"seller:products:{seller_profile.id}")
 
@@ -524,7 +533,7 @@ class ProductVariantCreateView(APIView):
         serializer.is_valid(raise_exception=True)
 
         product_line = serializer.save()
-
+        invalidate_customer_product_cache(seller_product.id)
         return Response(
             {
                 "message": "Product variant created successfully.",
@@ -597,7 +606,9 @@ class ProductVariantUpdateView(APIView):
 
         serializer.is_valid(raise_exception=True)
         serializer.save()
-
+        invalidate_customer_product_cache(
+            seller_product_id=product_variant.seller_product_id
+        )
         return Response(
             {
                 "message": "Product variant updated successfully.",
@@ -638,7 +649,7 @@ class ProductImageUploadView(APIView):
 
         # Save all uploaded images
         created_images = serializer.save()
-
+        invalidate_customer_product_cache(seller_product.id)
         # Prepare response
         response_serializer = ProductImageSerializer(
             created_images,

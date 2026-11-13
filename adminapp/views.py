@@ -9,6 +9,7 @@ from seller.models import ProductRequest, Category, ProductType, ProductTypeAttr
 from .serializers import AdminProductTypeSerializer,AdminProductRequestSerializer, AdminCategorySerializer, AdminCategoryUpdateSerializer, AdminProductTypeAttributeResponseSerializer, AdminAttributeConfigurationSerializer
 from django.shortcuts import get_object_or_404
 from django.core.cache import cache
+
 class AdminProductRequestListView(APIView):
 
     permission_classes = [IsAuthenticated, IsAdmin]

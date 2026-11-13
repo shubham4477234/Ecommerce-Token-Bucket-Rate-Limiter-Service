@@ -1,12 +1,23 @@
+from unicodedata import category
 import uuid
 from django.core.cache import cache
 
 from django.core.exceptions import ValidationError
 from django.db import transaction
+from matplotlib import category
 from django.utils.text import slugify
 
-from seller.models import Product, ProductRequest, Category, ProductType, ProductTypeAttribute, Attribute, AttributeValue
-
+from seller.models import (
+    Product,
+    ProductRequest,
+    Category,
+    ProductType,
+    ProductTypeAttribute,
+    Attribute,
+    AttributeValue,
+    SellerProduct,
+)
+from config.cache_utils import invalidate_customer_product_cache
 
 @transaction.atomic
 def approve_product_request(product_request):
@@ -79,45 +90,6 @@ def reject_product_request(product_request, admin_note):
 
     return product_request
 
-@transaction.atomic
-def update_category(category, validated_data):
-
-    # Check whether category name is changing
-    new_name = validated_data.get("name")
-
-    if new_name and new_name != category.name:
-
-        # Generate a new slug
-        base_slug = slugify(new_name)
-        slug = base_slug
-        counter = 1
-
-        # Ensure slug is unique, excluding current category
-        while Category.objects.filter(
-            slug=slug
-        ).exclude(id=category.id).exists():
-
-            counter += 1
-            slug = f"{base_slug}-{counter}"
-
-        category.name = new_name
-        category.slug = slug
-
-    # Update parent if supplied
-    if "parent" in validated_data:
-        category.parent = validated_data["parent"]
-
-    # Update active status if supplied
-    if "is_active" in validated_data:
-        category.is_active = validated_data["is_active"]
-
-    # Save changes
-    category.save()
-
-    # Clear seller category cache
-    cache.delete("seller:categories:tree")
-
-    return category
 
 @transaction.atomic
 def update_category(category, validated_data):
@@ -156,6 +128,24 @@ def update_category(category, validated_data):
 
     # Clear seller category cache
     cache.delete("seller:categories:tree")
+
+    # Invalidate Customer API caches after transaction commits
+    def invalidate_category_customer_cache():
+
+        # Get all seller listings associated with this category
+        seller_product_ids = SellerProduct.objects.filter(
+            product__category=category
+        ).values_list("id", flat=True)
+
+        # Invalidate affected listing and detail caches
+        for seller_product_id in seller_product_ids:
+            invalidate_customer_product_cache(seller_product_id)
+
+        # Invalidate the overall customer product listing cache
+        if not seller_product_ids:
+            invalidate_customer_product_cache()
+
+    transaction.on_commit(invalidate_category_customer_cache)
 
     return category
 

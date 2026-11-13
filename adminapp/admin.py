@@ -1,15 +1,42 @@
 from django.contrib import admin, messages
-from django.contrib import admin
 from django.core.cache import cache
+from django.db import transaction
+
 from mptt.admin import MPTTModelAdmin
 
-from seller.models import AttributeValue, Category, ProductTypeAttribute, ProductType, Attribute, ProductRequest
-from seller.models import ProductRequest, ProductType
-from .services import (
-    approve_product_request,
-    reject_product_request
+from seller.models import (
+    AttributeValue,
+    Category,
+    ProductTypeAttribute,
+    ProductType,
+    Attribute,
+    ProductRequest,
+    SellerProduct,
+    ProductLineAttributeValue,
 )
 
+from config.cache_utils import (
+    invalidate_customer_product_cache,
+    invalidate_customer_product_detail_cache,
+)
+
+from .services import (
+    approve_product_request,
+    reject_product_request,
+)
+
+
+def invalidate_customer_listings(listing_ids):
+    """
+    Invalidate detail caches for affected seller listings
+    and invalidate the general customer product listing cache.
+    """
+
+    for listing_id in set(listing_ids):
+        invalidate_customer_product_detail_cache(listing_id)
+
+    # Invalidate the general product listing cache
+    invalidate_customer_product_cache()
 
 @admin.register(ProductRequest)
 class ProductRequestAdmin(admin.ModelAdmin):
@@ -136,6 +163,35 @@ class CategoryAdmin(MPTTModelAdmin):
         "parent",
         "is_active",
     )
+    
+    def save_model(self, request, obj, form, change):
+
+        super().save_model(request, obj, form, change)
+
+        # Clear seller category cache
+        cache.delete("seller:categories:tree")
+
+        def invalidate_category_cache():
+
+            # Get all seller listings associated with this category
+            seller_product_ids = SellerProduct.objects.filter(
+                product__category_id=obj.pk
+            ).values_list(
+                "id",
+                flat=True
+            )
+
+            # Invalidate affected customer listing and detail caches
+            for seller_product_id in seller_product_ids:
+                invalidate_customer_product_detail_cache(
+                    seller_product_id
+                )
+
+            # Invalidate overall customer product listing cache
+            invalidate_customer_product_cache()
+
+        # Execute invalidation after database transaction commits
+        transaction.on_commit(invalidate_category_cache)
 
 class ProductTypeAttributeInline(admin.TabularInline):
     model = ProductTypeAttribute
@@ -182,14 +238,13 @@ class ProductTypeAttributeInline(admin.TabularInline):
     autocomplete_fields = ["attribute"]
 
 
-
 @admin.register(Attribute)
 class AttributeAdmin(admin.ModelAdmin):
 
     list_display = (
         "id",
         "name",
-        "is_active"
+        "is_active",
     )
 
     list_filter = (
@@ -201,29 +256,75 @@ class AttributeAdmin(admin.ModelAdmin):
     )
 
     inlines = [
-        AttributeValueInline
+        AttributeValueInline,
     ]
+
+    def save_model(self, request, obj, form, change):
+
+        super().save_model(request, obj, form, change)
+
+        def invalidate_attribute_cache():
+
+            # Find listings using this attribute
+            listing_ids = ProductLineAttributeValue.objects.filter(
+                attribute_value__attribute_id=obj.pk
+            ).values_list(
+                "product_line__seller_product_id",
+                flat=True
+            ).distinct()
+
+            # Invalidate affected customer caches
+            invalidate_customer_listings(listing_ids)
+
+            # Find related product types
+            product_type_ids = ProductTypeAttribute.objects.filter(
+                attribute_id=obj.pk
+            ).values_list(
+                "product_type_id",
+                flat=True
+            )
+
+            # Clear seller attribute caches
+            for product_type_id in product_type_ids:
+                cache.delete(
+                    f"seller:product-type:{product_type_id}:attributes"
+                )
+
+        transaction.on_commit(invalidate_attribute_cache)
 
     def save_related(self, request, form, formsets, change):
 
         super().save_related(request, form, formsets, change)
 
-        # Find product types using this attribute
-        product_type_ids = ProductTypeAttribute.objects.filter(
-            attribute=form.instance
-        ).values_list(
-            "product_type_id",
-            flat=True
-        )
+        def invalidate_related_attribute_cache():
 
-        # Clear their attribute caches
-        for product_type_id in product_type_ids:
-
-            cache.delete(
-                f"seller:product-type:{product_type_id}:attributes"
+            # Find product types using this attribute
+            product_type_ids = ProductTypeAttribute.objects.filter(
+                attribute=form.instance
+            ).values_list(
+                "product_type_id",
+                flat=True
             )
 
-@admin.register(ProductType)
+            for product_type_id in product_type_ids:
+                cache.delete(
+                    f"seller:product-type:{product_type_id}:attributes"
+                )
+
+            # Find customer listings using this attribute
+            listing_ids = ProductLineAttributeValue.objects.filter(
+                attribute_value__attribute_id=form.instance.id
+            ).values_list(
+                "product_line__seller_product_id",
+                flat=True
+            ).distinct()
+
+            invalidate_customer_listings(listing_ids)
+
+        transaction.on_commit(invalidate_related_attribute_cache)
+
+
+
 class ProductTypeAdmin(admin.ModelAdmin):
 
     list_display = (
