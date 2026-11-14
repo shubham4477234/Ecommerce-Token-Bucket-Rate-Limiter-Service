@@ -3,19 +3,21 @@ from django.db.models import Prefetch
 import hashlib
 import json
 from django.core.cache import cache
-
+from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.renderers import JSONRenderer
 from rest_framework.generics import ListAPIView, RetrieveAPIView
 from rest_framework.permissions import AllowAny
 
-from seller.models import SellerProduct, ProductLine
+from seller.models import SellerProduct, ProductLine, Category
 
-from .serializers import CustomerProductListSerializer, CustomerProductDetailSerializer
+from .serializers import CustomerProductListSerializer, CustomerProductDetailSerializer, CustomerCategorySerializer
 from .pagination import CustomerProductPagination
 from config.cache_utils import (
     CUSTOMER_PRODUCT_LIST_VERSION_KEY,
 )
+from customer.models import Cart
+from customer.serializers import CartSerializer
 
 
 class CustomerProductListView(ListAPIView):
@@ -220,3 +222,85 @@ def retrieve(self, request, *args, **kwargs):
     )
 
     return Response(response.data)
+
+
+class CustomerCategoryListView(ListAPIView):
+
+    serializer_class = CustomerCategorySerializer
+    permission_classes = [AllowAny]
+
+    CACHE_KEY = "customer:categories:tree"
+    CACHE_TIMEOUT = 600  # 10 minutes
+
+    def list(self, request, *args, **kwargs):
+
+        # Check Redis first
+        cached_data = cache.get(self.CACHE_KEY)
+
+        if cached_data is not None:
+            return Response(cached_data)
+
+        # Fetch active categories
+        categories = Category.objects.filter(
+            is_active=True
+        ).order_by("tree_id", "lft")
+
+        # Load the complete category tree efficiently
+        categories = categories.get_cached_trees()
+
+        # Serialize categories
+        serializer = self.get_serializer(
+            categories,
+            many=True
+        )
+
+        # Save response in Redis
+        cache.set(
+            self.CACHE_KEY,
+            serializer.data,
+            timeout=self.CACHE_TIMEOUT
+        )
+
+        return Response(serializer.data)
+
+
+
+class CustomerCartView(RetrieveAPIView):
+
+    serializer_class = CartSerializer
+    permission_classes = [IsAuthenticated]
+
+    def retrieve(self, request, *args, **kwargs):
+
+        customer_id = request.user.id
+
+        cache_key = f"customer:cart:{customer_id}"
+
+        # Check Redis first
+        cached_data = cache.get(cache_key)
+
+        if cached_data is not None:
+            return Response(cached_data)
+
+        # Get customer's cart from database
+        cart, created = Cart.objects.get_or_create(
+            customer=request.user
+        )
+
+        # Fetch cart items efficiently
+        cart = Cart.objects.prefetch_related(
+            "items__product_line__seller_product__product",
+            "items__product_line__seller_product__seller"
+        ).get(id=cart.id)
+
+        # Serialize cart
+        serializer = self.get_serializer(cart)
+
+        # Store response in Redis
+        cache.set(
+            cache_key,
+            serializer.data,
+            timeout=300
+        )
+
+        return Response(serializer.data)

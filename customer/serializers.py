@@ -5,9 +5,9 @@ from seller.models import (
     SellerProduct,
     ProductLine,
     ProductImage,
-    ProductLineAttributeValue,
+    ProductLineAttributeValue,Category
 )
-
+from customer.models import Cart, CartItem
 
 class ProductLineAttributeSerializer(serializers.ModelSerializer):
     attribute = serializers.CharField(
@@ -198,3 +198,117 @@ class CustomerProductDetailSerializer(serializers.ModelSerializer):
             "variants",
             "created_at",
         ]
+
+
+class CustomerCategorySerializer(serializers.ModelSerializer):
+
+    children = serializers.SerializerMethodField()
+
+    class Meta:
+        model = Category
+        fields = [
+            "id",
+            "name",
+            "slug",
+            "children",
+        ]
+
+    def get_children(self, obj):
+
+        # Get only active subcategories
+        active_children = [
+            child
+            for child in obj.get_children()
+            if child.is_active
+        ]
+
+        # Serialize the children using the same serializer
+        return CustomerCategorySerializer(
+            active_children,
+            many=True,
+            context=self.context
+        ).data
+
+
+
+class CartItemSerializer(serializers.ModelSerializer):
+
+    product_line_id = serializers.IntegerField(
+        source="product_line.id",
+        read_only=True
+    )
+
+    product_name = serializers.CharField(
+        source="product_line.seller_product.product.name",
+        read_only=True
+    )
+
+    seller_name = serializers.CharField(
+        source="product_line.seller_product.seller.store_name",
+        read_only=True
+    )
+
+    sku = serializers.CharField(
+        source="product_line.sku",
+        read_only=True
+    )
+
+    price = serializers.DecimalField(
+        source="product_line.price",
+        max_digits=10,
+        decimal_places=2,
+        read_only=True
+    )
+
+    stock_available = serializers.IntegerField(
+        source="product_line.stock_qty",
+        read_only=True
+    )
+
+    subtotal = serializers.SerializerMethodField()
+
+    class Meta:
+        model = CartItem
+        fields = [
+            "id",
+            "product_line_id",
+            "product_name",
+            "seller_name",
+            "sku",
+            "price",
+            "quantity",
+            "subtotal",
+            "stock_available",
+        ]
+
+    def get_subtotal(self, obj):
+        return obj.product_line.price * obj.quantity
+
+
+class CartSerializer(serializers.ModelSerializer):
+
+    items = CartItemSerializer(many=True, read_only=True)
+
+    total_items = serializers.SerializerMethodField()
+
+    total_amount = serializers.SerializerMethodField()
+
+    class Meta:
+        model = Cart
+        fields = [
+            "id",
+            "items",
+            "total_items",
+            "total_amount",
+        ]
+
+    def get_total_items(self, obj):
+        return sum(item.quantity for item in obj.items.all())
+
+    def get_total_amount(self, obj):
+        total = sum(
+            item.product_line.price * item.quantity
+            for item in obj.items.all()
+        )
+
+        return total

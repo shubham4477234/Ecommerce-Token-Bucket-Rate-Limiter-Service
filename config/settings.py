@@ -185,6 +185,29 @@ CACHES = {
 
 
 # --------------------------------------------------
+# DJANGO SESSION CONFIGURATION
+# --------------------------------------------------
+
+# Store session data in PostgreSQL
+SESSION_ENGINE = "django.contrib.sessions.backends.db"
+
+# Session expires after 7 days
+SESSION_COOKIE_AGE = 60 * 60 * 24 * 7
+
+# Prevent JavaScript from accessing the session cookie
+SESSION_COOKIE_HTTPONLY = True
+
+# Save session only when modified
+SESSION_SAVE_EVERY_REQUEST = False
+
+# Local development over HTTP
+SESSION_COOKIE_SECURE = False
+
+# Same-site cookie protection
+SESSION_COOKIE_SAMESITE = "Lax"
+
+
+# --------------------------------------------------
 # INTERNATIONALIZATION
 # --------------------------------------------------
 

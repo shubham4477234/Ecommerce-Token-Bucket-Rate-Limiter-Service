@@ -61,3 +61,11 @@ def invalidate_customer_product_cache(seller_product_id=None):
         invalidate_customer_product_detail_cache(
             seller_product_id
         )
+
+
+
+def invalidate_customer_category_cache():
+    cache.delete("customer:categories:tree")
+
+def invalidate_customer_cart_cache(customer_id):
+    cache.delete(f"customer:cart:{customer_id}")
