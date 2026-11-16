@@ -1,4 +1,5 @@
 
+from polars import Decimal
 from rest_framework import serializers
 
 from seller.models import (
@@ -7,7 +8,7 @@ from seller.models import (
     ProductImage,
     ProductLineAttributeValue,Category
 )
-from customer.models import Cart, CartItem
+from customer.models import Cart, CartItem, Address
 
 class ProductLineAttributeSerializer(serializers.ModelSerializer):
     attribute = serializers.CharField(
@@ -307,8 +308,101 @@ class CartSerializer(serializers.ModelSerializer):
 
     def get_total_amount(self, obj):
         total = sum(
-            item.product_line.price * item.quantity
-            for item in obj.items.all()
+            (
+                item.product_line.price * item.quantity
+                for item in obj.items.all()
+            ),
+            start=Decimal("0.00")
         )
 
         return total
+
+
+
+class AddToCartSerializer(serializers.Serializer):
+
+    # ID of the selected product variant
+    product_line_id = serializers.IntegerField(
+        min_value=1
+    )
+
+    # Number of units customer wants
+    quantity = serializers.IntegerField(
+        min_value=1,
+        default=1
+    )
+
+
+class UpdateCartItemSerializer(serializers.Serializer):
+
+    quantity = serializers.IntegerField(
+        min_value=1
+    )
+
+
+
+
+
+class AddressSerializer(serializers.ModelSerializer):
+
+    class Meta:
+        model = Address
+
+        # Customer is intentionally excluded.
+        # Backend assigns it using request.user.
+        fields = [
+            "id",
+            "full_name",
+            "phone",
+            "address_type",
+            "address_line_1",
+            "address_line_2",
+            "city",
+            "state",
+            "postal_code",
+            "country",
+            "is_default",
+            "created_at",
+            "updated_at",
+        ]
+
+        read_only_fields = [
+            "id",
+            "created_at",
+            "updated_at",
+        ]
+
+    def validate_phone(self, value):
+        if not value.isdigit():
+            raise serializers.ValidationError(
+                "Phone number must contain digits only."
+            )
+
+        if not 10 <= len(value) <= 15:
+            raise serializers.ValidationError(
+                "Phone number must contain 10 to 15 digits."
+            )
+
+        return value
+
+
+class PlaceOrderSerializer(serializers.Serializer):
+
+    address_id = serializers.IntegerField(min_value=1)
+
+    def validate_address_id(self, value):
+
+        request = self.context.get("request")
+
+        # Find an address belonging to the logged-in customer
+        address = Address.objects.filter(
+            id=value,
+            customer=request.user
+        ).first()
+
+        if address is None:
+            raise serializers.ValidationError(
+                "Invalid address. Please select your own saved address."
+            )
+
+        return address

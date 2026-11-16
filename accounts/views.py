@@ -3,7 +3,7 @@ from rest_framework.response import Response
 from rest_framework import status
 from rest_framework_simplejwt.tokens import RefreshToken
 from django.contrib.auth import get_user_model
-
+from customer.services import merge_guest_cart, preserve_cart_in_session
 from .serializers import RegisterSerializer, LoginSerializer, RefreshSerializer
 from .serializers import LogoutSerializer
 from rest_framework.permissions import IsAuthenticated, AllowAny
@@ -45,9 +45,9 @@ class RegisterView(APIView):
         )
 
 
-
 class LoginView(APIView):
     permission_classes = [AllowAny]
+
     def post(self, request):
 
         # Pass login data to the serializer
@@ -56,13 +56,16 @@ class LoginView(APIView):
         # Validate email and password
         if serializer.is_valid():
 
-            # Get the authenticated user from serializer
+            # Get the authenticated user
             user = serializer.validated_data["user"]
 
-            # Generate a refresh token for this user
+            # Merge guest cart into the customer's database cart
+            cart_result = merge_guest_cart(request, user)
+
+            # Generate refresh token
             refresh = RefreshToken.for_user(user)
 
-            # Add custom information to the JWT token
+            # Add custom information to JWT
             refresh["role"] = user.role
             refresh["tier"] = user.tier
 
@@ -81,7 +84,8 @@ class LoginView(APIView):
                     "tokens": {
                         "refresh": str(refresh),
                         "access": str(access)
-                    }
+                    },
+                    "cart": cart_result
                 },
                 status=status.HTTP_200_OK
             )
@@ -118,15 +122,19 @@ class RefreshView(APIView):
             status=status.HTTP_400_BAD_REQUEST
         )
     
+
 class LogoutView(APIView):
-    permission_classes = [AllowAny]
+    permission_classes = [IsAuthenticated]
 
     def post(self, request):
 
-        # Receive the refresh token from the request
+        # Validate the refresh token
         serializer = LogoutSerializer(data=request.data)
 
         if serializer.is_valid():
+
+            # Copy database cart into Django session
+            preserve_cart_in_session(request, request.user)
 
             # Get the validated refresh token
             refresh_token = serializer.validated_data["token"]
