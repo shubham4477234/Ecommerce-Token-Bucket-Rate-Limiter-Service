@@ -1,4 +1,5 @@
 
+from decouple import config
 from pathlib import Path
 from datetime import timedelta
 
@@ -236,3 +237,9 @@ MEDIA_ROOT = BASE_DIR / "media"
 # --------------------------------------------------
 
 DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
+RATE_LIMIT_TRUSTED_PROXY_COUNT = 0
+
+RATE_LIMIT_REDIS_URL = config(
+    "RATE_LIMIT_REDIS_URL",
+    default="redis://127.0.0.1:6379/2"
+)
