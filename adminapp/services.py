@@ -1,10 +1,10 @@
 from unicodedata import category
 import uuid
 from django.core.cache import cache
-
+from matplotlib import category
 from django.core.exceptions import ValidationError
 from django.db import transaction
-from matplotlib import category
+
 from django.utils.text import slugify
 
 from seller.models import (

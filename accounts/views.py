@@ -7,11 +7,13 @@ from customer.services import merge_guest_cart, preserve_cart_in_session
 from .serializers import RegisterSerializer, LoginSerializer, RefreshSerializer
 from .serializers import LogoutSerializer
 from rest_framework.permissions import IsAuthenticated, AllowAny
-
+from rate_limiter.throttles import TokenBucketThrottle
 
 # Registration API
 class RegisterView(APIView):
     permission_classes = [AllowAny]
+    throttle_classes = [TokenBucketThrottle]
+    throttle_scope = "register"
     def post(self, request):
 
         # Pass the incoming request data to the serializer
@@ -47,7 +49,8 @@ class RegisterView(APIView):
 
 class LoginView(APIView):
     permission_classes = [AllowAny]
-
+    throttle_classes = [TokenBucketThrottle]
+    throttle_scope = "login"
     def post(self, request):
 
         # Pass login data to the serializer
@@ -99,6 +102,8 @@ class LoginView(APIView):
 
 class RefreshView(APIView):
     permission_classes = [AllowAny]
+    throttle_classes = [TokenBucketThrottle]
+    throttle_scope = "refresh"
     def post(self, request):
 
         # Pass the refresh token to the serializer
