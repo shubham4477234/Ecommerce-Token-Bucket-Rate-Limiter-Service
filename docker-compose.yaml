@@ -1,0 +1,158 @@
+services:
+  # ----------------------------------------
+  # 1. POSTGRESQL DATABASE
+  # ----------------------------------------
+  postgres:
+    image: postgres:17
+    container_name: limitguard-postgres
+    restart: unless-stopped
+
+    env_file:
+      - .env
+
+    environment:
+      POSTGRES_DB: ${DB_NAME:?Set DB_NAME in .env}
+      POSTGRES_USER: ${DB_USER:?Set DB_USER in .env}
+      POSTGRES_PASSWORD: ${DB_PASSWORD:?Set DB_PASSWORD in .env}
+
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $$POSTGRES_USER -d $$POSTGRES_DB"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 10s
+
+    networks:
+      - limitguard-network
+
+  # ----------------------------------------
+  # 2. DATABASE MIGRATION JOB
+  # ----------------------------------------
+  migrate:
+    build:
+      context: .
+      dockerfile: Dockerfile
+
+    image: limitguard-api:latest
+    container_name: limitguard-migrate
+
+    env_file:
+      - .env
+
+    entrypoint: ["python"]
+    command: ["manage.py", "migrate", "--noinput"]
+
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+    restart: "no"
+
+    networks:
+      - limitguard-network
+
+  # ----------------------------------------
+  # 3. INITIAL DATA SEED JOB
+  # ----------------------------------------
+  seed:
+    image: limitguard-api:latest
+    container_name: limitguard-seed
+
+    env_file:
+      - .env
+
+    entrypoint: ["python"]
+    command:
+      - manage.py
+      - shell
+      - -c
+      - "exec(open('seed_electronics.py', encoding='utf-8').read())"
+
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+
+    restart: "no"
+
+    networks:
+      - limitguard-network
+
+  # ----------------------------------------
+  # 4. REDIS
+  # ----------------------------------------
+  redis:
+    image: redis:7-alpine
+    container_name: limitguard-redis
+    restart: unless-stopped
+
+    env_file:
+      - .env
+
+    command:
+      - /bin/sh
+      - -c
+      - 'exec redis-server --appendonly yes --requirepass "$$REDIS_PASSWORD"'
+
+    volumes:
+      - redis_data:/data
+
+    healthcheck:
+      test: ["CMD-SHELL", 'redis-cli -a "$$REDIS_PASSWORD" ping | grep -q PONG']
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 5s
+
+    depends_on:
+      seed:
+        condition: service_completed_successfully
+
+    networks:
+      - limitguard-network
+
+  # ----------------------------------------
+  # 5. DJANGO APPLICATION
+  # ----------------------------------------
+  web:
+    image: limitguard-api:latest
+    container_name: limitguard-api
+    restart: unless-stopped
+
+    env_file:
+      - .env
+
+    ports:
+      - "127.0.0.1:8000:8000"
+
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+      redis:
+        condition: service_healthy
+
+      migrate:
+        condition: service_completed_successfully
+
+      seed:
+        condition: service_completed_successfully
+
+    networks:
+      - limitguard-network
+
+# ----------------------------------------
+# NETWORKS
+# ----------------------------------------
+networks:
+  limitguard-network:
+    driver: bridge
+
+# ----------------------------------------
+# PERSISTENT VOLUMES
+# ----------------------------------------
+volumes:
+  postgres_data:
+  redis_data:
